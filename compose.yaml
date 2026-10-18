@@ -1,0 +1,48 @@
+services:
+  user:
+    build: ./services/user
+    platform: linux/amd64
+    image: ${DOCKERHUB_NAMESPACE:-sammsulhoquechoudhary}/herovired-ecommerce-user:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    networks: [ecommerce]
+    expose: ["3001"]
+  products:
+    build: ./services/products
+    platform: linux/amd64
+    image: ${DOCKERHUB_NAMESPACE:-sammsulhoquechoudhary}/herovired-ecommerce-products:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    networks: [ecommerce]
+    expose: ["3002"]
+  orders:
+    build: ./services/orders
+    platform: linux/amd64
+    image: ${DOCKERHUB_NAMESPACE:-sammsulhoquechoudhary}/herovired-ecommerce-orders:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    networks: [ecommerce]
+    expose: ["3003"]
+  cart:
+    build: ./services/cart
+    platform: linux/amd64
+    image: ${DOCKERHUB_NAMESPACE:-sammsulhoquechoudhary}/herovired-ecommerce-cart:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    networks: [ecommerce]
+    expose: ["3004"]
+  frontend:
+    build: ./services/frontend
+    platform: linux/amd64
+    image: ${DOCKERHUB_NAMESPACE:-sammsulhoquechoudhary}/herovired-ecommerce-frontend:${IMAGE_TAG:-1.0.0}
+    restart: unless-stopped
+    networks: [ecommerce]
+    ports: ["80:3000"]
+    depends_on:
+      user:
+        condition: service_healthy
+      products:
+        condition: service_healthy
+      orders:
+        condition: service_healthy
+      cart:
+        condition: service_healthy
+networks:
+  ecommerce:
+    driver: bridge

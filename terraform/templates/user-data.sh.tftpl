@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+exec > >(tee -a /var/log/ecommerce-bootstrap.log) 2>&1
+export DEBIAN_FRONTEND=noninteractive
+retry() {
+  local attempt
+  for attempt in $(seq 1 12); do
+    if "$@"; then return 0; fi
+    sleep 10
+  done
+  return 1
+}
+retry apt-get update
+retry apt-get install -y docker.io curl
+systemctl enable --now docker
+mkdir -p /opt/ecommerce
+cat > /opt/ecommerce/start.sh <<'START'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+docker network inspect ecommerce >/dev/null 2>&1 || docker network create ecommerce
+for service in user products orders cart frontend; do
+  image="docker.io/${dockerhub_namespace}/herovired-ecommerce-$service:${image_tag}"
+  success=0
+  for attempt in $(seq 1 12); do
+    if docker pull "$image"; then success=1; break; fi
+    sleep 10
+  done
+  test "$success" -eq 1
+ done
+for service in user products orders cart frontend; do
+  docker rm -f "$service" >/dev/null 2>&1 || true
+ done
+docker run -d --name user --network ecommerce --restart unless-stopped --log-opt max-size=10m --log-opt max-file=3 -p 10.42.1.25:3001:3001 docker.io/${dockerhub_namespace}/herovired-ecommerce-user:${image_tag}
+docker run -d --name products --network ecommerce --restart unless-stopped --log-opt max-size=10m --log-opt max-file=3 -p 10.42.1.25:3002:3002 docker.io/${dockerhub_namespace}/herovired-ecommerce-products:${image_tag}
+docker run -d --name orders --network ecommerce --restart unless-stopped --log-opt max-size=10m --log-opt max-file=3 -p 10.42.1.25:3003:3003 docker.io/${dockerhub_namespace}/herovired-ecommerce-orders:${image_tag}
+docker run -d --name cart --network ecommerce --restart unless-stopped --log-opt max-size=10m --log-opt max-file=3 -p 10.42.1.25:3004:3004 docker.io/${dockerhub_namespace}/herovired-ecommerce-cart:${image_tag}
+docker run -d --name frontend --network ecommerce --restart unless-stopped --log-opt max-size=10m --log-opt max-file=3 -p 80:3000 docker.io/${dockerhub_namespace}/herovired-ecommerce-frontend:${image_tag}
+for attempt in $(seq 1 60); do
+  if curl --fail --silent http://127.0.0.1/api/status; then exit 0; fi
+  sleep 5
+ done
+exit 1
+START
+chmod 750 /opt/ecommerce/start.sh
+cat > /etc/systemd/system/ecommerce.service <<'UNIT'
+[Unit]
+Description=CloudCart Docker application
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+StartLimitIntervalSec=0
+[Service]
+Type=oneshot
+ExecStart=/opt/ecommerce/start.sh
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=30
+TimeoutStartSec=1800
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now ecommerce.service
